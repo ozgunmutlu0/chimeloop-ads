@@ -1,21 +1,26 @@
-// Daily Chimeloop ad poster: schedules the next unposted video from
-// NeonPulse/marketing/posts to Instagram (Reel) and TikTok through Buffer.
+// Daily Chimeloop ad poster: schedules the next unposted video from this
+// repo's posts/<folder>/ (video.mp4 + caption.md) to Instagram (Reel), TikTok
+// and YouTube Shorts through Buffer. The queue lives in git so any machine
+// (Windows or Mac) can add videos by pushing; each run starts with `git pull`.
 //
-//   node post-daily.mjs            keep the next DAYS_AHEAD days scheduled (one video/day at POST_HOUR)
-//   node post-daily.mjs --now      share the next video immediately (used for the first test)
+//   node post-daily.mjs            pull, import, keep the next DAYS_AHEAD days scheduled (one video/day at POST_HOUR)
+//   node post-daily.mjs --import [dir]   only copy new rendered posts from a NeonPulse
+//                                  marketing/posts dir (default ../NeonPulse/marketing/posts) into posts/ and push
+//   node post-daily.mjs --now      share the next video immediately
 //   node post-daily.mjs --status   only refresh and print the status of everything posted so far
 //   node post-daily.mjs --dry      show what would be scheduled, change nothing
 //
-// Needs BUFFER_API_KEY (user env var). Videos are served from GitHub Pages
+// Needs BUFFER_API_KEY (env var). Videos are served from GitHub Pages
 // (this repo), because Buffer only accepts public media URLs.
-import { readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync, appendFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const POSTS = join(HERE, "..", "NeonPulse", "marketing", "posts");
-const PAGES = "https://ozgunmutlu0.github.io/chimeloop-ads/v/";
+const POSTS = join(HERE, "posts");
+const NEONPULSE_POSTS = join(HERE, "..", "NeonPulse", "marketing", "posts");
+const PAGES = "https://ozgunmutlu0.github.io/chimeloop-ads/posts/";
 const ORG = "6b05f6e75cc49a33a446e40c";
 // Per-service post settings. Channels are read from Buffer on each run, so a
 // newly connected supported account (e.g. YouTube) starts receiving posts automatically.
@@ -82,13 +87,47 @@ async function urlOk(url) {
   }
 }
 
-// Copy a new video into the Pages repo, push it, and wait until it is served.
+const git = (cmd) => execSync(`git ${cmd}`, { cwd: HERE, stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
+
+function pull() {
+  try {
+    git("pull -q --ff-only");
+  } catch (e) {
+    log("WARNING git pull failed, using local copy: " + String(e.stderr || e).trim());
+  }
+}
+
+// Copy rendered posts (video.mp4 + caption.md) that are not queued yet from a
+// NeonPulse marketing/posts dir into posts/, then commit and push them.
+function importFrom(dir) {
+  if (!existsSync(dir)) return [];
+  const added = [];
+  for (const d of readdirSync(dir, { withFileTypes: true })) {
+    const src = join(dir, d.name);
+    if (!d.isDirectory() || existsSync(join(POSTS, d.name))) continue;
+    if (!existsSync(join(src, "video.mp4")) || !existsSync(join(src, "caption.md"))) continue;
+    mkdirSync(join(POSTS, d.name), { recursive: true });
+    for (const f of ["video.mp4", "caption.md"]) copyFileSync(join(src, f), join(POSTS, d.name, f));
+    added.push(d.name);
+  }
+  if (added.length) {
+    git(`add ${added.map((n) => `"posts/${n}"`).join(" ")}`);
+    git(`commit -q -m "Queue ${added.join(", ")}"`);
+    git("push -q");
+    log(`imported ${added.length} new video(s): ${added.join(", ")}`);
+  }
+  return added;
+}
+
+// Make sure the video is pushed and served by GitHub Pages before Buffer fetches it.
 async function ensureHosted(folder) {
-  const url = PAGES + folder + ".mp4";
+  const url = PAGES + folder + "/video.mp4";
   if (await urlOk(url)) return url;
-  const dest = join(HERE, "v", folder + ".mp4");
-  if (!existsSync(dest)) copyFileSync(join(POSTS, folder, "video.mp4"), dest);
-  execSync(`git add "v/${folder}.mp4" && git commit -q -m "Add ${folder}" && git push -q`, { cwd: HERE, stdio: "inherit" });
+  if (git(`status --porcelain "posts/${folder}"`)) {
+    git(`add "posts/${folder}"`);
+    git(`commit -q -m "Queue ${folder}"`);
+  }
+  if (git("rev-list --count @{u}..HEAD") !== "0") git("push -q");
   for (let i = 0; i < 40; i++) {
     await new Promise((r) => setTimeout(r, 15000));
     if (await urlOk(url)) return url;
@@ -173,6 +212,18 @@ if (!key) {
 }
 
 try {
+  if (args.has("--import")) {
+    const i = process.argv.indexOf("--import");
+    const dir = process.argv[i + 1] && !process.argv[i + 1].startsWith("--") ? resolve(process.argv[i + 1]) : NEONPULSE_POSTS;
+    pull();
+    const added = importFrom(dir);
+    if (!added.length) console.log("nothing new to import from", dir);
+    process.exit(0);
+  }
+  if (!args.has("--status") && !args.has("--dry")) {
+    pull();
+    importFrom(NEONPULSE_POSTS);
+  }
   await loadChannels();
   await refreshStatus();
   if (!args.has("--status") && !args.has("--dry")) {
