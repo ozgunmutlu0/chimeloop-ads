@@ -3,10 +3,11 @@
 Posting queue for Chimeloop ad videos. Buffer only accepts public media URLs,
 so videos are served from this repo via GitHub Pages.
 
-- `posts/<yyyy-mm-dd-slug>/video.mp4` + `caption.md` — the queue, posted in folder-name order,
+- `posts/<yyyy-mm-dd-slug>/video.mp4` + `caption.md` (+ optional `cover.jpg`: the cover baked into the first 0.3 s; Buffer only accepts a frame offset, so posts use that frame) — the queue, posted in folder-name order,
   one per day at 19:00 (Turkey) to Instagram Reels, TikTok and YouTube Shorts.
 - `post-daily.mjs` — run daily by the Windows task "Chimeloop Daily Ads". It pulls this repo,
-  imports new renders from `../NeonPulse/marketing/posts`, and keeps the next 3 days scheduled in Buffer.
+  imports new renders from `../NeonPulse/marketing/posts` (including re-renders of posts not sent yet:
+  their scheduled Buffer posts are deleted and recreated at the same time), and keeps the next 3 days scheduled in Buffer.
 - `v/` — old video URLs used by the first three scheduled posts (25–27 Nov 2026); safe to delete after they are sent.
 
 ## Adding a video from any machine (e.g. Mac)
