@@ -25,3 +25,16 @@ Buffer posting runs on the Windows machine.
 
 `BUFFER_API_KEY=... node post-daily.mjs --status` (any machine), or the Buffer dashboard.
 `state.json` and `posting.log` are machine-local and gitignored.
+
+## API key on a new machine
+
+The script reads `BUFFER_API_KEY` from the environment only; never put the key in a file in this repo
+(`.env` is gitignored as a safety net). On a Mac, store it in Keychain (prompts, nothing in shell history):
+
+```sh
+security add-generic-password -a "$USER" -s buffer-api -w
+echo 'export BUFFER_API_KEY="$(security find-generic-password -s buffer-api -w)"' >> ~/.zshrc
+```
+
+The free Buffer plan has one key; creating a new one revokes the old one on every machine.
+Run the daily scheduler on only one machine at a time (state.json is local), or posts get scheduled twice.
